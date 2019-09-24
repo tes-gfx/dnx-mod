@@ -407,11 +407,10 @@ static struct drm_driver dnx_driver = {
   .gem_prime_mmap            = drm_gem_cma_prime_mmap,
   .gem_vm_ops                = &drm_gem_cma_vm_ops,
   .dumb_create               = drm_gem_cma_dumb_create,
-  .dumb_map_offset           = drm_gem_cma_dumb_map_offset,
+  .dumb_map_offset           = drm_gem_dumb_map_offset,
   .dumb_destroy              = drm_gem_dumb_destroy,
 #ifdef CONFIG_DEBUG_FS
   .debugfs_init              = dnx_debugfs_init,
-  .debugfs_cleanup           = dnx_debugfs_cleanup,
 #endif
   .ioctls = dnx_ioctls,
   .num_ioctls = DRM_DNX_NUM_IOCTLS,

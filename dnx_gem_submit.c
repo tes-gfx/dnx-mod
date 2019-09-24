@@ -28,8 +28,8 @@ int dnx_ioctl_gem_submit(struct drm_device *dev, void *data,
 	if(args->nr_bos == 0)
 		return -EINVAL;
 
-	handles = drm_malloc_ab(args->nr_bos, sizeof(*handles));
-	bos = drm_malloc_ab(args->nr_bos, sizeof(*bos));
+	handles = kvmalloc_array(args->nr_bos, sizeof(*handles), GFP_KERNEL);
+	bos = kvmalloc_array(args->nr_bos, sizeof(*bos), GFP_KERNEL);
 	cmdbuf = dnx_gpu_cmdbuf_new(dnx, args->nr_bos);
 	if(!handles || !bos || !cmdbuf) {
 		ret = -ENOMEM;
@@ -82,9 +82,9 @@ error_handles:
 	if(cmdbuf)
 		dnx_gpu_cmdbuf_free(cmdbuf);
 	if(handles)
-		drm_free_large(handles);
+		kvfree(handles);
 	if(bos)
-		drm_free_large(bos);
+		kvfree(bos);
 
 	return ret;
 }

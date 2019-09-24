@@ -73,7 +73,13 @@ static int show_ring(struct dnx_device *dnx, struct seq_file *m)
 
 static int show_mm(struct dnx_device *dnx, struct seq_file *m)
 {
-	return drm_mm_dump_table(m, &dnx->drm->vma_offset_manager->vm_addr_space_mm);
+	struct drm_info_node *node = (struct drm_info_node *) m->private;
+	struct drm_device *dev = node->minor->dev;
+	struct drm_printer p = drm_seq_file_printer(m);
+	
+	drm_mm_print(&dev->vma_offset_manager->vm_addr_space_mm, &p);
+
+	return 0;
 }
 
 
