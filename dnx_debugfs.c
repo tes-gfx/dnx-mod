@@ -101,18 +101,16 @@ static int show_busy(struct dnx_device *dnx, struct seq_file *m)
 			seq_printf(m, STRING(DNX_BUSY_MASK_REG) "\n");
 		if(busy & DNX_BUSY_MASK_SDMA)
 			seq_printf(m, STRING(DNX_BUSY_MASK_SDMA) "\n");
-		if(busy & DNX_BUSY_MASK_DCTRL)
-			seq_printf(m, STRING(DNX_BUSY_MASK_DCTRL) "\n");
-		if(busy & DNX_BUSY_MASK_PEU)
-			seq_printf(m, STRING(DNX_BUSY_MASK_PEU) "\n");
+		if(busy & DNX_BUSY_MASK_DRAW)
+			seq_printf(m, STRING(DNX_BUSY_MASK_DRAW) "\n");
+		if(busy & DNX_BUSY_MASK_RAST)
+			seq_printf(m, STRING(DNX_BUSY_MASK_RAST) "\n");
 		if(busy & DNX_BUSY_MASK_DISP)
 			seq_printf(m, STRING(DNX_BUSY_MASK_DISP) "\n");
 		if(busy & DNX_BUSY_MASK_PASM)
 			seq_printf(m, STRING(DNX_BUSY_MASK_PASM) "\n");
 		if(busy & DNX_BUSY_MASK_SCR)
 			seq_printf(m, STRING(DNX_BUSY_MASK_SCR) "\n");
-		if(busy & DNX_BUSY_MASK_ADDR)
-			seq_printf(m, STRING(DNX_BUSY_MASK_ADDR) "\n");
 		if(busy & DNX_BUSY_MASK_SHDBASE)
 			seq_printf(m, STRING(DNX_BUSY_MASK_SHDBASE) "\n");
 	}
