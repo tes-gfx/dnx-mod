@@ -87,6 +87,7 @@ static int show_busy(struct dnx_device *dnx, struct seq_file *m)
 {
 	u32 *reg = (u32*) dnx->mmio;
 	u32 busy;
+	int i;
 
 	busy = reg[DNX_REG_CONTROL_BUSY];
 
@@ -94,7 +95,7 @@ static int show_busy(struct dnx_device *dnx, struct seq_file *m)
 		seq_printf(m, "core ready...\n");
 	}
 	else {
-		seq_printf(m, "core busy:\n");
+		seq_printf(m, "core busy (0x%0x):\n", busy);
 		if(busy & DNX_BUSY_MASK_CTRL)
 			seq_printf(m, STRING(DNX_BUSY_MASK_CTRL) "\n");
 		if(busy & DNX_BUSY_MASK_REG)
@@ -111,8 +112,20 @@ static int show_busy(struct dnx_device *dnx, struct seq_file *m)
 			seq_printf(m, STRING(DNX_BUSY_MASK_PASM) "\n");
 		if(busy & DNX_BUSY_MASK_SCR)
 			seq_printf(m, STRING(DNX_BUSY_MASK_SCR) "\n");
-		if(busy & DNX_BUSY_MASK_SHDBASE)
-			seq_printf(m, STRING(DNX_BUSY_MASK_SHDBASE) "\n");
+		if(busy & DNX_BUSY_MASK_FCLR)
+			seq_printf(m, STRING(DNX_BUSY_MASK_FCLR) "\n");
+		if(busy & DNX_BUSY_MASK_L2C)
+			seq_printf(m, STRING(DNX_BUSY_MASK_L2C) "\n");
+		if(busy & DNX_BUSY_MASK_BLU)
+			seq_printf(m, STRING(DNX_BUSY_MASK_BLU) "\n");
+		for(i=0; i<4; ++i) {
+			if(busy & (DNX_BUSY_MASK_TFUBASE << i))
+				seq_printf(m, "DNX_BUSY_MASK_TFU%d\n", i);
+		}
+		for(i=0; i<4; ++i) {
+			if(busy & (DNX_BUSY_MASK_SHDBASE << i))
+				seq_printf(m, "DNX_BUSY_MASK_SHD%d\n", i);
+		}
 	}
 
 	return 0;
