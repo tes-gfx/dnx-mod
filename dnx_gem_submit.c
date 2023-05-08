@@ -12,9 +12,9 @@ int dnx_ioctl_gem_submit(struct drm_device *dev, void *data,
 	struct dnx_device *dnx = dev->dev_private;
 	struct drm_dnx_stream_submit *args = data;
 	u32 *handles;
-	struct drm_gem_cma_object **bos = NULL;
+	struct dnx_bo **bos = NULL;
 	struct dnx_cmdbuf *cmdbuf;
-	struct drm_gem_cma_object *last_page;
+	struct dnx_bo *last_page;
 	dma_addr_t stream_addr;
 	void* stream_jmpaddr;
 	int ret, i;

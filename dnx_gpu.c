@@ -3,6 +3,7 @@
 #include <linux/delay.h>
 
 #include "dnx_drv.h"
+#include "dnx_gem.h"
 #include "dnx_buffer.h"
 #include "nx_register_address.h"
 #include "nx_types.h"
@@ -32,10 +33,10 @@ static void retire_worker(struct work_struct *work)
 		--dnx->active_cmd_count;
 
 		for (i = 0; i < cmdbuf->nr_bos; i++) {
-			struct drm_gem_cma_object *obj = cmdbuf->bos[i];
+			struct dnx_bo *bo = cmdbuf->bos[i];
 
 			/* drop the refcount taken in dnx_ioctl_gem_submit */
-			drm_gem_object_unreference_unlocked(&obj->base);
+			drm_gem_object_unreference_unlocked(&bo->base);
 		}
 
 		dnx_gpu_cmdbuf_free(cmdbuf);
@@ -164,7 +165,7 @@ int dnx_gpu_cmdbuf_lookup_objects(struct dnx_cmdbuf *buf,
 		 */
 		drm_gem_object_reference(obj);
 
-		buf->bos[i] = to_drm_gem_cma_obj(obj);
+		buf->bos[i] = to_dnx_bo(obj);
 	}
 
 out_unlock:

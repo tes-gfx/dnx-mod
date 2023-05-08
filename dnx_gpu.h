@@ -14,6 +14,7 @@
 
 
 struct dnx_cmdbuf;
+struct dnx_bo;
 
 struct dnx_device {
 	struct device     *dev;
@@ -75,7 +76,7 @@ struct dnx_cmdbuf {
 	u32 fence; /* fence after which this buffer is to be disposed */
 	struct list_head node; /* GPU in-flight list */
 	unsigned int nr_bos;
-	struct drm_gem_cma_object *bos[0];
+	struct dnx_bo *bos[0];
 };
 
 

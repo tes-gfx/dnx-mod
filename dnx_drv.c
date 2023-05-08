@@ -6,6 +6,7 @@
 #include <drm/drmP.h>
 #include <drm/drm_crtc_helper.h>
 #include <drm/drm_gem_cma_helper.h>
+#include <drm/dnx_drm.h>
 #include "dnx_selftest.h"
 #include "dnx_drv.h"
 #include "dnx_gpu.h"
@@ -86,7 +87,7 @@ static int dnx_ioctl_gem_new(struct drm_device *dev, void *data,
 	struct drm_file *file)
 {
 	struct drm_dnx_gem_new *args = data;
-	struct drm_gem_object *bo = NULL;
+	struct dnx_bo *bo = NULL;
 	dma_addr_t paddr;
 	int ret;
 
@@ -94,7 +95,7 @@ static int dnx_ioctl_gem_new(struct drm_device *dev, void *data,
 	dev_dbg(dev->dev, " size=0x%08llx\n", args->size);
 	dev_dbg(dev->dev, " flags=0x%08x\n", args->flags);
 
-	if (args->flags & ~(DNX_BO_CACHED | DNX_BO_WC | DNX_BO_UNCACHED))
+	if (args->flags & ~(DNX_BO_CACHED | DNX_BO_WC | DNX_BO_UNCACHED | DNX_BO_SHADER_ARENA))
 			return -EINVAL;
 
 	bo = dnx_gem_new(dev, args->size, &paddr);
@@ -104,11 +105,12 @@ static int dnx_ioctl_gem_new(struct drm_device *dev, void *data,
 	args->paddr = paddr;
 	dev_dbg(dev->dev, " paddr=0x%08llx\n", args->paddr);
 
-	ret = drm_gem_handle_create(file, bo, &args->handle);
-	drm_gem_object_unreference_unlocked(bo);
+	ret = drm_gem_handle_create(file, &bo->base, &args->handle);
+	drm_gem_object_unreference_unlocked(&bo->base);
 
 	dev_dbg(dev->dev, " handle=0x%08x\n", args->handle);
 	dev_dbg(dev->dev, " obj=0x%p\n", bo);
+	dev_dbg(dev->dev, " actual_size=0x%08zx\n", bo->base.size);
 
 	return ret;
 }
@@ -138,7 +140,7 @@ static int dnx_ioctl_gem_user(struct drm_device *dev, void *data,
 {
 	struct drm_dnx_gem_user *args = data;
 	struct drm_gem_object *obj;
-	struct drm_gem_cma_object *obj_cma;
+	struct dnx_bo *bo;
 
 	if (args->pad)
 		return -EINVAL;
@@ -147,8 +149,8 @@ static int dnx_ioctl_gem_user(struct drm_device *dev, void *data,
 	if (!obj)
 		return -ENOENT;
 
-	obj_cma = to_drm_gem_cma_obj(obj);
-	args->paddr = obj_cma->paddr;
+	bo = to_dnx_bo(obj);
+	args->paddr = bo->paddr;
 
 	drm_gem_object_unreference_unlocked(obj);
 
@@ -369,7 +371,7 @@ int dnx_mmap(struct file *filp, struct vm_area_struct *vma)
 #ifdef DEBUG
 void dnx_gem_free_object(struct drm_gem_object *obj)
 {
-	dev_dbg(obj->dev->dev, "freeing bo 0x%p kref=%d\n", obj, obj->refcount.refcount.counter);
+	dev_dbg(obj->dev->dev, "freeing bo 0x%p kref=%d\n", obj, obj->refcount.refcount.refs.counter);
 	drm_gem_cma_free_object(obj);
 }
 #endif

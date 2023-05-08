@@ -9,7 +9,7 @@ dnx-y := dnx_drv.o \
 	 dnx_dbg.o 
 
 ccflags-y := -DDISABLE_ASSERTIONS -I$(src)/../drm-dnx -I$(src)/../../../../interface/src
-#ccflags-y += -DDEBUG=1
+ccflags-y += -DDEBUG=1
 
 KERNEL_SRC := $(SDKTARGETSYSROOT)/usr/src/kernel
 
@@ -31,6 +31,6 @@ clean:
 
 .PHONY:
 deploy: all
-	#scp *.ko root@$(BOARD_IP):/home/root/
-	scp *.ko root@$(BOARD_IP):/lib/modules/4.14.130-ltsi-altera/extra/
+	scp *.ko root@$(BOARD_IP):/home/root/
+	#scp *.ko root@$(BOARD_IP):/lib/modules/4.14.130-ltsi-altera/extra/
 
