@@ -8,8 +8,13 @@ dnx-y := dnx_drv.o \
 	 dnx_debugfs.o \
 	 dnx_dbg.o 
 
-ccflags-y := -DDISABLE_ASSERTIONS -I$(src)/../drm-dnx -I$(src)/../../../../interface/src
-ccflags-y += -DDEBUG=1 -g -Og
+ccflags-y := -I$(src)/../drm-dnx -I$(src)/../../../../interface/src
+
+ifeq ($(DEBUG),1)
+	ccflags-y += -DDEBUG=1 -g -Og
+else
+	ccflags-y += -DDISABLE_ASSERTIONS
+endif
 
 KERNEL_SRC := $(SDKTARGETSYSROOT)/usr/src/kernel
 
@@ -17,6 +22,9 @@ SRC := $(shell pwd)
 
 .PHONY:
 all:
+ifeq ($(DEBUG),1)
+	$(warning "!!! DEBUG BUILD !!!")
+endif
 	$(MAKE) -C $(KERNEL_SRC) M=$(SRC)
 
 .PHONY:
