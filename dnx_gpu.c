@@ -56,7 +56,7 @@ static int dnx_gpu_arena_create(struct dnx_device *dnx, struct dnx_arena *arena,
 	int ret = 0;
 
 	arena->size = size;
-	arena->vaddr = dma_alloc_writecombine(dnx->dev, size, &arena->paddr, GFP_KERNEL);
+	arena->vaddr = dma_alloc_wc(dnx->dev, size, &arena->paddr, GFP_KERNEL);
 	if (!arena->vaddr) {
 		dev_err(dnx->dev, "failed to allocate arena with size %zu\n",
 				size);
@@ -72,7 +72,7 @@ static int dnx_gpu_arena_create(struct dnx_device *dnx, struct dnx_arena *arena,
 static void dnx_gpu_arena_delete(struct dnx_device *dnx, struct dnx_arena *arena)
 {
 	drm_mm_takedown(&arena->mm);
-	dma_free_writecombine(dnx->dev, arena->size, arena->vaddr, arena->paddr);
+	dma_free_wc(dnx->dev, arena->size, arena->vaddr, arena->paddr);
 	arena->vaddr = 0;
 	arena->paddr = 0;
 }
@@ -92,7 +92,7 @@ static struct dnx_ringbuf *dnx_gpu_ringbuf_new(struct dnx_device *dnx, u32 size)
 	if(!ringbuf)
 		return NULL;
 
-	ringbuf->vaddr = dma_alloc_writecombine(dnx->dev, size, &ringbuf->paddr, GFP_KERNEL);
+	ringbuf->vaddr = dma_alloc_wc(dnx->dev, size, &ringbuf->paddr, GFP_KERNEL);
 	ringbuf->size = size;
 
 	return ringbuf;
@@ -101,7 +101,7 @@ static struct dnx_ringbuf *dnx_gpu_ringbuf_new(struct dnx_device *dnx, u32 size)
 
 static void dnx_gpu_ringbuf_free(struct dnx_device *dnx, struct dnx_ringbuf *ringbuf)
 {
-	dma_free_writecombine(dnx->dev, ringbuf->size, ringbuf->vaddr, ringbuf->paddr);
+	dma_free_wc(dnx->dev, ringbuf->size, ringbuf->vaddr, ringbuf->paddr);
 	kfree(ringbuf);
 }
 
