@@ -446,6 +446,8 @@ static int dnx_remove(struct platform_device *pdev) {
   struct dnx_device *dnx = platform_get_drvdata(pdev);
   struct drm_device *ddev = dnx->drm;
 
+  dnx_gpu_release(dnx);
+
   drm_dev_unregister(ddev);
   drm_dev_unref(ddev);
 
@@ -538,7 +540,11 @@ static int dnx_probe(struct platform_device *pdev) {
 
 	platform_set_drvdata(pdev, dnx);
 
-	dnx_gpu_init(dnx);
+	ret = dnx_gpu_init(dnx);
+	if(ret) {
+		dev_err(&pdev->dev, "failed to initialize GPU: %d\n", ret);
+		return ret;
+	}
 
 	/* setup debug facility */
 	spin_lock_init(&dnx->debug_irq_slck);

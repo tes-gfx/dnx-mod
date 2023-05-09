@@ -1,6 +1,7 @@
 #include "dnx_gpu.h"
 
 #include <linux/delay.h>
+#include <drm/drm_mm.h>
 
 #include "dnx_drv.h"
 #include "dnx_gem.h"
@@ -50,6 +51,61 @@ static void retire_worker(struct work_struct *work)
 }
 
 
+static int dnx_gpu_arena_create(struct dnx_device *dnx, struct dnx_arena *arena, u32 size)
+{
+	int ret = 0;
+
+	arena->size = size;
+	arena->vaddr = dma_alloc_writecombine(dnx->dev, size, &arena->paddr, GFP_KERNEL);
+	if (!arena->vaddr) {
+		dev_err(dnx->dev, "failed to allocate arena with size %zu\n",
+				size);
+		ret = -ENOMEM;
+	}
+
+	drm_mm_init(&arena->mm, (u64) arena->paddr, size);
+
+	return ret;
+}
+
+
+static void dnx_gpu_arena_delete(struct dnx_device *dnx, struct dnx_arena *arena)
+{
+	drm_mm_takedown(&arena->mm);
+	dma_free_writecombine(dnx->dev, arena->size, arena->vaddr, arena->paddr);
+	arena->vaddr = 0;
+	arena->paddr = 0;
+}
+
+
+static struct dnx_ringbuf *dnx_gpu_ringbuf_new(struct dnx_device *dnx, u32 size)
+{
+	struct dnx_ringbuf *ringbuf;
+
+	if(size != PAGE_SIZE)
+	{
+		dev_err(dnx->dev, "%s currently not implemented properly: only capable of creating ring buffer\n", __func__);
+		return NULL;
+	}
+
+	ringbuf = kzalloc(sizeof(*ringbuf), GFP_KERNEL);
+	if(!ringbuf)
+		return NULL;
+
+	ringbuf->vaddr = dma_alloc_writecombine(dnx->dev, size, &ringbuf->paddr, GFP_KERNEL);
+	ringbuf->size = size;
+
+	return ringbuf;
+}
+
+
+static void dnx_gpu_ringbuf_free(struct dnx_device *dnx, struct dnx_ringbuf *ringbuf)
+{
+	dma_free_writecombine(dnx->dev, ringbuf->size, ringbuf->vaddr, ringbuf->paddr);
+	kfree(ringbuf);
+}
+
+
 int dnx_gpu_init(struct dnx_device *dnx) 
 {
 	int ret = 0;
@@ -68,8 +124,16 @@ int dnx_gpu_init(struct dnx_device *dnx)
 		dev_err(dnx->dev, "could not create command buffer\n");
 		return -ENOMEM;
 	}
-
 	dnx_buffer_init(dnx);
+
+	/* create shader program memory arena */
+	ret = dnx_gpu_arena_create(dnx, &dnx->program_arena, DNX_PROGRAM_ARENA_SIZE);
+	if(ret) {
+		dev_err(dnx->dev, "could not create shader program arena\n");
+		goto error_arena;
+	}
+	dnx_reg_write(dnx, DNX_REG_PGM_BASE_ADDR, dnx->program_arena.paddr);
+	dev_dbg(dnx->dev, "created shader program arena at %zx\n", dnx->program_arena.paddr);
 
 	INIT_LIST_HEAD(&dnx->active_cmd_list);
 	dnx->active_cmd_count = 0;
@@ -79,13 +143,16 @@ int dnx_gpu_init(struct dnx_device *dnx)
 	dnx->wq = alloc_ordered_workqueue("dnx", 0);
 	if (!dnx->wq) {
 		ret = -ENOMEM;
-		goto out_wq;
+		goto error_wq;
 	}
 
 	return 0;
 
-out_wq:
-	dnx_gpu_ringbuf_free(dnx->buffer);
+error_wq:
+	dnx_gpu_arena_delete(dnx, &dnx->program_arena);
+
+error_arena:
+	dnx_gpu_ringbuf_free(dnx, dnx->buffer);
 
 	return ret;
 }
@@ -96,8 +163,10 @@ void dnx_gpu_release(struct dnx_device *dnx)
 	flush_workqueue(dnx->wq);
 	destroy_workqueue(dnx->wq);
 
+	dnx_gpu_arena_delete(dnx, &dnx->program_arena);
+
 	if(dnx->buffer) {
-		dnx_gpu_ringbuf_free(dnx->buffer);
+		dnx_gpu_ringbuf_free(dnx, dnx->buffer);
 		dnx->buffer = NULL;
 	}
 }
@@ -180,34 +249,6 @@ void dnx_gpu_cmdbuf_free(struct dnx_cmdbuf *buf)
 {
 	dev_dbg(buf->dnx->dev, "freeing cmdbuf %p\n", buf);
 	kfree(buf);
-}
-
-
-struct dnx_ringbuf *dnx_gpu_ringbuf_new(struct dnx_device *dnx, u32 size)
-{
-	struct dnx_ringbuf *ringbuf;
-
-	if(size != PAGE_SIZE)
-	{
-		dev_err(dnx->dev, "%s currently not implemented properly: only capable of creating ring buffer\n", __func__);
-		return NULL;
-	}
-
-	ringbuf = kzalloc(sizeof(*ringbuf), GFP_KERNEL);
-	if(!ringbuf)
-		return NULL;
-
-	ringbuf->vaddr = dma_alloc_writecombine(dnx->dev, size, &ringbuf->paddr, GFP_KERNEL);
-	ringbuf->size = size;
-
-	return ringbuf;
-}
-
-
-void dnx_gpu_ringbuf_free(struct dnx_ringbuf *ringbuf)
-{
-	dma_free_writecombine(ringbuf->dnx->dev, ringbuf->size, ringbuf->vaddr, ringbuf->paddr);
-	kfree(ringbuf);
 }
 
 
