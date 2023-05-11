@@ -35,7 +35,7 @@ to_dnx_bo(struct drm_gem_object *gem_obj)
 
 #define DNX_GEM_FLAG_ARENA_VIDEO   (0x1)
 #define DNX_GEM_FLAG_ARENA_PROGRAM (0x2)
-struct dnx_bo *dnx_gem_new(struct drm_device *dev, size_t unaligned_size, dma_addr_t *paddr, u32 flags);
+struct dnx_bo *dnx_gem_create(struct drm_device *dev, size_t unaligned_size, dma_addr_t *paddr, u32 flags);
 void dnx_gem_free_object(struct drm_gem_object *gem_obj);
 int dnx_gem_mmap(struct file *filp, struct vm_area_struct *vma);
 int dnx_gem_mmap_offset(struct drm_gem_object *obj, u64 *offset);

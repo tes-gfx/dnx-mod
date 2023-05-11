@@ -50,7 +50,7 @@ error:
 }
 
 
-struct dnx_bo *dnx_gem_new(struct drm_device *dev, size_t unaligned_size, dma_addr_t *paddr, u32 flags)
+struct dnx_bo *dnx_gem_create(struct drm_device *dev, size_t unaligned_size, dma_addr_t *paddr, u32 flags)
 {
 	struct dnx_device *dnx = dev->dev_private;
 	struct dnx_bo *bo;

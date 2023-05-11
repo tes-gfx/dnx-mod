@@ -106,7 +106,7 @@ static int dnx_ioctl_gem_new(struct drm_device *dev, void *data,
 		flags |= DNX_GEM_FLAG_ARENA_VIDEO;
 	}
 
-	bo = dnx_gem_new(dev, args->size, &paddr, flags);
+	bo = dnx_gem_create(dev, args->size, &paddr, flags);
 	if(IS_ERR(bo))
 		return PTR_ERR(bo);
 
