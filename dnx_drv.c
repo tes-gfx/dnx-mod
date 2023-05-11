@@ -89,6 +89,7 @@ static int dnx_ioctl_gem_new(struct drm_device *dev, void *data,
 	struct drm_dnx_gem_new *args = data;
 	struct dnx_bo *bo = NULL;
 	dma_addr_t paddr;
+	u32 flags = 0;
 	int ret;
 
 	dev_dbg(dev->dev, "New bo:\n");
@@ -98,12 +99,20 @@ static int dnx_ioctl_gem_new(struct drm_device *dev, void *data,
 	if (args->flags & ~(DNX_BO_CACHED | DNX_BO_WC | DNX_BO_UNCACHED | DNX_BO_SHADER_ARENA))
 			return -EINVAL;
 
-	bo = dnx_gem_new(dev, args->size, &paddr);
+	if(args->flags & DNX_BO_SHADER_ARENA) {
+		flags |= DNX_GEM_FLAG_ARENA_PROGRAM;
+	}
+	else {
+		flags |= DNX_GEM_FLAG_ARENA_VIDEO;
+	}
+
+	bo = dnx_gem_new(dev, args->size, &paddr, flags);
 	if(IS_ERR(bo))
 		return PTR_ERR(bo);
 
 	args->paddr = paddr;
 	dev_dbg(dev->dev, " paddr=0x%08llx\n", args->paddr);
+	dev_dbg(dev->dev, " vaddr=0x%p\n", bo->vaddr);
 
 	ret = drm_gem_handle_create(file, &bo->base, &args->handle);
 	drm_gem_object_unreference_unlocked(&bo->base);
@@ -330,11 +339,11 @@ int dnx_mmap(struct file *filp, struct vm_area_struct *vma)
 	if(vma->vm_pgoff >= 0x10000) {
 		int ret;
 
-		dev_dbg(dev->dev, "mmap cma bo vm_pgoff=%lx\n", vma->vm_pgoff);
+		dev_dbg(dev->dev, "mmap dnx bo vm_pgoff=%lx\n", vma->vm_pgoff);
 
-		ret = drm_gem_cma_mmap(filp, vma);
+		ret = dnx_gem_mmap(filp, vma);
 		if (ret) {
-			dev_err(dev->dev, "mmap gem cma failed: %d", ret);
+			dev_err(dev->dev, "mmap dnx gem failed: %d", ret);
 			return ret;
 		}
 	}
@@ -368,15 +377,6 @@ int dnx_mmap(struct file *filp, struct vm_area_struct *vma)
 	return 0;
 }
 
-#ifdef DEBUG
-void dnx_gem_free_object(struct drm_gem_object *obj)
-{
-	dev_dbg(obj->dev->dev, "freeing bo 0x%p kref=%d\n", obj, obj->refcount.refcount.refs.counter);
-	drm_gem_cma_free_object(obj);
-}
-#endif
-
-
 static const struct file_operations dnx_fops = {
   .owner          = THIS_MODULE,
   .open           = drm_open,
@@ -391,13 +391,10 @@ static const struct file_operations dnx_fops = {
   .mmap           = dnx_mmap,
 };
 
+/* todo: remove prime support for the time being */
 static struct drm_driver dnx_driver = {
   .driver_features           = DRIVER_HAVE_IRQ | DRIVER_GEM | DRIVER_PRIME | DRIVER_RENDER,
-#ifdef DEBUG
   .gem_free_object           = dnx_gem_free_object,
-#else
-  .gem_free_object           = drm_gem_cma_free_object,
-#endif
   .prime_handle_to_fd        = drm_gem_prime_handle_to_fd,
   .prime_fd_to_handle        = drm_gem_prime_fd_to_handle,
   .gem_prime_import          = drm_gem_prime_import,

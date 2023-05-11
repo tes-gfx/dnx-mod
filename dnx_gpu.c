@@ -55,6 +55,9 @@ static int dnx_gpu_arena_create(struct dnx_device *dnx, struct dnx_arena *arena,
 {
 	int ret = 0;
 
+	/* Check for alignment. */
+	BUG_ON(size & DRM_GEM_PROGRAM_ARENA_ALIGN_MASK);
+
 	arena->size = size;
 	arena->vaddr = dma_alloc_wc(dnx->dev, size, &arena->paddr, GFP_KERNEL);
 	if (!arena->vaddr) {
@@ -63,7 +66,7 @@ static int dnx_gpu_arena_create(struct dnx_device *dnx, struct dnx_arena *arena,
 		ret = -ENOMEM;
 	}
 
-	drm_mm_init(&arena->mm, (u64) arena->paddr, size);
+	drm_mm_init(&arena->mm, 0, (size >> DRM_GEM_PROGRAM_ARENA_ALIGN_SHIFT));
 
 	return ret;
 }
@@ -132,7 +135,7 @@ int dnx_gpu_init(struct dnx_device *dnx)
 		dev_err(dnx->dev, "could not create shader program arena\n");
 		goto error_arena;
 	}
-	dnx_reg_write(dnx, DNX_REG_PGM_BASE_ADDR, dnx->program_arena.paddr);
+	dnx_reg_write(dnx, DNX_REG_CONTROL_PGM_BASE_ADDR, dnx->program_arena.paddr);
 	dev_dbg(dnx->dev, "created shader program arena at %zx\n", dnx->program_arena.paddr);
 
 	INIT_LIST_HEAD(&dnx->active_cmd_list);
