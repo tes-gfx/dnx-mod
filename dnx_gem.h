@@ -6,8 +6,9 @@
 #include <drm/drm_gem_cma_helper.h>
 
 
-#define DRM_GEM_PROGRAM_ARENA_ALIGN_SHIFT (7)
-#define DRM_GEM_PROGRAM_ARENA_ALIGN_MASK ((1 << DRM_GEM_PROGRAM_ARENA_ALIGN_SHIFT) - 1)
+#define DNX_GEM_ALIGN_SHIFT (PAGE_SHIFT)
+#define DNX_GEM_ALIGN_SIZE (1ul << DNX_GEM_ALIGN_SHIFT)
+#define DNX_GEM_ALIGN_MASK (DNX_GEM_ALIGN_SIZE - 1)
 
 /**
  * struct drm_gem_cma_object - GEM object backed by CMA memory allocations

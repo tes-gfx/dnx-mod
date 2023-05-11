@@ -59,8 +59,8 @@ struct dnx_bo *dnx_gem_new(struct drm_device *dev, size_t unaligned_size, dma_ad
 
 	if(unaligned_size == 0)
 			return ERR_PTR(-EINVAL);
+	size = round_up(unaligned_size, DNX_GEM_ALIGN_SIZE);
 
-	size = round_up(unaligned_size, PAGE_SIZE);
 	dev_dbg(dev->dev, "%s size=0x%08zx\n", __func__, unaligned_size);
 	dev_dbg(dev->dev, "%s actual_size=0x%08zx\n", __func__, size);
 	bo = __dnx_bo_create(dev, size);
@@ -85,9 +85,15 @@ struct dnx_bo *dnx_gem_new(struct drm_device *dev, size_t unaligned_size, dma_ad
 			ret = -ENOMEM;
 			goto error_alloc;
 		}
-		drm_mm_insert_node(&dnx->program_arena.mm, bo->mm_node, size);
-		bo->paddr = dnx->program_arena.paddr + (bo->mm_node->start << DRM_GEM_PROGRAM_ARENA_ALIGN_SHIFT);
-		bo->vaddr = dnx->program_arena.vaddr + (bo->mm_node->start << DRM_GEM_PROGRAM_ARENA_ALIGN_SHIFT);
+		dev_dbg(dev->dev, "%s arena.mm=%p\n", __func__, &dnx->program_arena.mm);
+		ret = drm_mm_insert_node(&dnx->program_arena.mm, bo->mm_node, size >> DNX_GEM_ALIGN_SHIFT);
+		if(ret) {
+			dev_err(dev->dev, "failed to insert mm node (%d)\n", ret);
+			goto error_alloc;
+		}
+		
+		bo->paddr = dnx->program_arena.paddr + (bo->mm_node->start << DNX_GEM_ALIGN_SHIFT);
+		bo->vaddr = dnx->program_arena.vaddr + (bo->mm_node->start << DNX_GEM_ALIGN_SHIFT);
 		dev_dbg(dev->dev, "%s arena=program\n", __func__);
 	}
 
@@ -165,6 +171,8 @@ void dnx_gem_free_object(struct drm_gem_object *gem_obj)
 
 	if (bo->vaddr) {
 		if(bo->mm_node) {
+			dev_dbg(gem_obj->dev->dev, "freeing mm node 0x%p\n", bo->mm_node);
+			dev_dbg(gem_obj->dev->dev, "  mm 0x%p\n", bo->mm_node->mm);
 			drm_mm_remove_node(bo->mm_node);
 			kfree(bo->mm_node);
 		}

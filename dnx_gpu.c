@@ -56,7 +56,7 @@ static int dnx_gpu_arena_create(struct dnx_device *dnx, struct dnx_arena *arena,
 	int ret = 0;
 
 	/* Check for alignment. */
-	BUG_ON(size & DRM_GEM_PROGRAM_ARENA_ALIGN_MASK);
+	BUG_ON((size & DNX_GEM_ALIGN_MASK) != 0);
 
 	arena->size = size;
 	arena->vaddr = dma_alloc_wc(dnx->dev, size, &arena->paddr, GFP_KERNEL);
@@ -66,7 +66,7 @@ static int dnx_gpu_arena_create(struct dnx_device *dnx, struct dnx_arena *arena,
 		ret = -ENOMEM;
 	}
 
-	drm_mm_init(&arena->mm, 0, (size >> DRM_GEM_PROGRAM_ARENA_ALIGN_SHIFT));
+	drm_mm_init(&arena->mm, 0, (size >> DNX_GEM_ALIGN_SHIFT));
 
 	return ret;
 }
