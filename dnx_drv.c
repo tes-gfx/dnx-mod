@@ -390,6 +390,11 @@ static const struct file_operations dnx_fops = {
   .mmap           = dnx_mmap,
 };
 
+const struct vm_operations_struct dnx_gem_vm_ops = {
+	.open = drm_gem_vm_open,
+	.close = drm_gem_vm_close,
+};
+
 /* todo: remove prime support for the time being */
 static struct drm_driver dnx_driver = {
   .driver_features           = DRIVER_HAVE_IRQ | DRIVER_GEM | DRIVER_PRIME | DRIVER_RENDER,
@@ -403,7 +408,7 @@ static struct drm_driver dnx_driver = {
   .gem_prime_vmap            = drm_gem_cma_prime_vmap,
   .gem_prime_vunmap          = drm_gem_cma_prime_vunmap,
   .gem_prime_mmap            = drm_gem_cma_prime_mmap,
-  .gem_vm_ops                = &drm_gem_cma_vm_ops,
+  .gem_vm_ops                = &dnx_gem_vm_ops,
   .dumb_create               = drm_gem_dumb_create,
   .dumb_map_offset           = drm_gem_dumb_map_offset,
   .dumb_destroy              = drm_gem_dumb_destroy,
