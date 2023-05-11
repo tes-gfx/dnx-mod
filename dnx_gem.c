@@ -1,6 +1,7 @@
 #include "dnx_gem.h"
 #include "dnx_gpu.h"
 
+#include <linux/dma-buf.h>
 #include <drm/drm_gem_cma_helper.h>
 #include <drm/drm_mm.h>
 
@@ -234,4 +235,80 @@ void dnx_gem_free_object(struct drm_gem_object *gem_obj)
 	drm_gem_object_release(gem_obj);
 
 	kfree(bo);
+}
+
+
+struct sg_table *dnx_gem_prime_get_sg_table(struct drm_gem_object *obj)
+{
+	struct dnx_bo *bo = to_dnx_bo(obj);
+	struct sg_table *sgt;
+	int ret;
+
+	sgt = kzalloc(sizeof(*sgt), GFP_KERNEL);
+	if (!sgt)
+		return NULL;
+
+	ret = dma_get_sgtable(obj->dev->dev, sgt, bo->vaddr,
+			      bo->paddr, obj->size);
+	if (ret < 0)
+		goto out;
+
+	return sgt;
+
+out:
+	kfree(sgt);
+	return NULL;
+}
+
+
+struct drm_gem_object *
+dnx_gem_prime_import_sg_table(struct drm_device *dev,
+				  struct dma_buf_attachment *attach,
+				  struct sg_table *sgt)
+{
+	struct dnx_bo *bo;
+
+	if (sgt->nents != 1)
+		return ERR_PTR(-EINVAL);
+
+	/* Create a CMA GEM buffer. */
+	bo = __dnx_bo_create(dev, attach->dmabuf->size);
+	if (IS_ERR(bo))
+		return ERR_CAST(bo);
+
+	bo->paddr = sg_dma_address(sgt->sgl);
+	bo->sgt = sgt;
+
+	DRM_DEBUG_PRIME("dma_addr = %pad, size = %zu\n", &bo->paddr, attach->dmabuf->size);
+
+	return &bo->base;
+}
+
+
+void *dnx_gem_prime_vmap(struct drm_gem_object *obj)
+{
+	struct dnx_bo *bo = to_dnx_bo(obj);
+
+	return bo->vaddr;
+}
+
+
+void dnx_gem_prime_vunmap(struct drm_gem_object *obj, void *vaddr)
+{
+	/* Nothing to do */
+}
+
+
+int dnx_gem_prime_mmap(struct drm_gem_object *obj,
+			   struct vm_area_struct *vma)
+{
+	struct dnx_bo *bo;
+	int ret;
+
+	ret = drm_gem_mmap_obj(obj, obj->size, vma);
+	if (ret < 0)
+		return ret;
+
+	bo = to_dnx_bo(obj);
+	return dnx_gem_mmap_obj(bo, vma);
 }

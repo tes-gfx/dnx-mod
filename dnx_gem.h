@@ -43,4 +43,15 @@ int drm_gem_dumb_create(struct drm_file *file_priv,
 			    struct drm_device *drm,
 			    struct drm_mode_create_dumb *args);
 
+/* Prime Functions */
+struct sg_table *dnx_gem_prime_get_sg_table(struct drm_gem_object *obj);
+struct drm_gem_object *
+dnx_gem_prime_import_sg_table(struct drm_device *dev,
+				  struct dma_buf_attachment *attach,
+				  struct sg_table *sgt);
+void *dnx_gem_prime_vmap(struct drm_gem_object *obj);
+void dnx_gem_prime_vunmap(struct drm_gem_object *obj, void *vaddr);
+int dnx_gem_prime_mmap(struct drm_gem_object *obj,
+			   struct vm_area_struct *vma);
+
 #endif /* _DNX_GEM_H_ */
