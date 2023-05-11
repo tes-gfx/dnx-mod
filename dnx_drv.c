@@ -88,7 +88,6 @@ static int dnx_ioctl_gem_new(struct drm_device *dev, void *data,
 {
 	struct drm_dnx_gem_new *args = data;
 	struct dnx_bo *bo = NULL;
-	dma_addr_t paddr;
 	u32 flags = 0;
 	int ret;
 
@@ -106,11 +105,11 @@ static int dnx_ioctl_gem_new(struct drm_device *dev, void *data,
 		flags |= DNX_GEM_FLAG_ARENA_VIDEO;
 	}
 
-	bo = dnx_gem_create(dev, args->size, &paddr, flags);
+	bo = dnx_gem_create(dev, args->size, flags);
 	if(IS_ERR(bo))
 		return PTR_ERR(bo);
 
-	args->paddr = paddr;
+	args->paddr = bo->paddr;
 	dev_dbg(dev->dev, " paddr=0x%08llx\n", args->paddr);
 	dev_dbg(dev->dev, " vaddr=0x%p\n", bo->vaddr);
 
@@ -405,7 +404,7 @@ static struct drm_driver dnx_driver = {
   .gem_prime_vunmap          = drm_gem_cma_prime_vunmap,
   .gem_prime_mmap            = drm_gem_cma_prime_mmap,
   .gem_vm_ops                = &drm_gem_cma_vm_ops,
-  .dumb_create               = drm_gem_cma_dumb_create,
+  .dumb_create               = drm_gem_dumb_create,
   .dumb_map_offset           = drm_gem_dumb_map_offset,
   .dumb_destroy              = drm_gem_dumb_destroy,
 #ifdef CONFIG_DEBUG_FS

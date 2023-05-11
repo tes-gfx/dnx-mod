@@ -4,6 +4,11 @@
 #include <drm/drm_gem_cma_helper.h>
 #include <drm/drm_mm.h>
 
+/**
+ * The implementations in this file follow the GEM CMA helper implementation in
+ * the kernel.
+ */
+
 
 /**
  * __dnx_bo_create - Create a DNX BO without allocating memory
@@ -50,7 +55,7 @@ error:
 }
 
 
-struct dnx_bo *dnx_gem_create(struct drm_device *dev, size_t unaligned_size, dma_addr_t *paddr, u32 flags)
+struct dnx_bo *dnx_gem_create(struct drm_device *dev, size_t unaligned_size, u32 flags)
 {
 	struct dnx_device *dnx = dev->dev_private;
 	struct dnx_bo *bo;
@@ -96,8 +101,6 @@ struct dnx_bo *dnx_gem_create(struct drm_device *dev, size_t unaligned_size, dma
 		bo->vaddr = dnx->program_arena.vaddr + (bo->mm_node->start << DNX_GEM_ALIGN_SHIFT);
 		dev_dbg(dev->dev, "%s arena=program\n", __func__);
 	}
-
-	*paddr = bo->paddr;
 
 	return bo;
 
@@ -158,6 +161,50 @@ int dnx_gem_mmap_offset(struct drm_gem_object *obj, u64 *offset)
 		*offset = drm_vma_node_offset_addr(&obj->vma_node);
 
 	return ret;
+}
+
+
+static struct dnx_bo *
+dnx_gem_create_with_handle(struct drm_file *file_priv,
+			       struct drm_device *drm, size_t size,
+			       uint32_t *handle)
+{
+	struct dnx_bo *bo;
+	struct drm_gem_object *gem_obj;
+	int ret;
+
+	bo = dnx_gem_create(drm, size, DNX_GEM_FLAG_ARENA_VIDEO);
+	if (IS_ERR(bo))
+		return bo;
+
+	gem_obj = &bo->base;
+
+	/*
+	 * allocate a id of idr table where the obj is registered
+	 * and handle has the id what user can see.
+	 */
+	ret = drm_gem_handle_create(file_priv, gem_obj, handle);
+	/* drop reference from allocate - handle holds it now. */
+	drm_gem_object_put_unlocked(gem_obj);
+	if (ret)
+		return ERR_PTR(ret);
+
+	return bo;
+}
+
+
+int drm_gem_dumb_create(struct drm_file *file_priv,
+			    struct drm_device *drm,
+			    struct drm_mode_create_dumb *args)
+{
+	struct dnx_bo *bo;
+
+	args->pitch = DIV_ROUND_UP(args->width * args->bpp, 8);
+	args->size = args->pitch * args->height;
+
+	bo = dnx_gem_create_with_handle(file_priv, drm, args->size,
+						 &args->handle);
+	return PTR_ERR_OR_ZERO(bo);
 }
 
 
