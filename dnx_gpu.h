@@ -4,6 +4,7 @@
 
 #include <linux/types.h>
 #include <linux/spinlock.h>
+#include <drm/drm_mm.h>
 #include <drm/drm_gem_cma_helper.h>
 
 #include "dnx_drv.h"
@@ -11,9 +12,19 @@
 
 #define DNX_RINGBUFFER_SIZE PAGE_SIZE
 #define DNX_RINGBUFFER_MAX_SLOTS (128)
+#define MB(x) (x * 1024 * 1024)
+#define DNX_PROGRAM_ARENA_SIZE (MB(4))
 
 
 struct dnx_cmdbuf;
+struct dnx_bo;
+
+struct dnx_arena {
+	struct drm_mm mm;
+	void *vaddr;
+	dma_addr_t paddr;
+	u32 size;
+};
 
 struct dnx_device {
 	struct device     *dev;
@@ -36,6 +47,9 @@ struct dnx_device {
 	struct dnx_ringbuf *buffer;
 	bool stc_running;
 	spinlock_t stc_lock; /* synchronization of user/irq context STC triggering */
+
+	/* Shader program arena */
+	struct dnx_arena program_arena;
 
 	/* list of currently in-flight command buffers */
 	struct list_head active_cmd_list;
@@ -60,7 +74,6 @@ struct dnx_device {
 };
 
 struct dnx_ringbuf {
-	struct dnx_device *dnx;
 	void *vaddr;
 	dma_addr_t paddr;
 	u32 size;
@@ -75,7 +88,7 @@ struct dnx_cmdbuf {
 	u32 fence; /* fence after which this buffer is to be disposed */
 	struct list_head node; /* GPU in-flight list */
 	unsigned int nr_bos;
-	struct drm_gem_cma_object *bos[0];
+	struct dnx_bo *bos[0];
 };
 
 
@@ -96,8 +109,6 @@ struct dnx_cmdbuf *dnx_gpu_cmdbuf_new(struct dnx_device *dnx, size_t nr_bo);
 int dnx_gpu_cmdbuf_lookup_objects(struct dnx_cmdbuf *buf,
 	struct drm_file *file, u32 *handles, unsigned nr_bos);
 void dnx_gpu_cmdbuf_free(struct dnx_cmdbuf *buf);
-struct dnx_ringbuf *dnx_gpu_ringbuf_new(struct dnx_device *dnx, u32 size);
-void dnx_gpu_ringbuf_free(struct dnx_ringbuf *cmdbuf);
 
 int dnx_gpu_submit(struct dnx_device *dnx, struct dnx_cmdbuf *buf);
 int dnx_gpu_wait_fence_interruptible(struct dnx_device *dnx, u32 fence, struct timespec *timeout);

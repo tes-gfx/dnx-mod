@@ -3,7 +3,7 @@
 
 #include <linux/kernel.h>
 #include <drm/drmP.h>
-#include <drm/dnx_drm.h>
+#include "dnx_drm.h"
 
 #include "nx_types.h"
 

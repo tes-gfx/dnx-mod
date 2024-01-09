@@ -2,6 +2,7 @@
 
 #include "dnx_drv.h"
 #include "dnx_gpu.h"
+#include "dnx_gem.h"
 #include "nx_register_address.h"
 
 
@@ -54,7 +55,7 @@ void dnx_debug_reg_dump(struct dnx_device *dnx)
 }
 
 
-static struct drm_gem_cma_object *find_bo_by_dma_addr(struct dnx_cmdbuf *cmdbuf, dma_addr_t addr)
+static struct dnx_bo *find_bo_by_dma_addr(struct dnx_cmdbuf *cmdbuf, dma_addr_t addr)
 {
 	int i;
 
@@ -73,7 +74,7 @@ static struct drm_gem_cma_object *find_bo_by_dma_addr(struct dnx_cmdbuf *cmdbuf,
 
 /* note: caller must make sure that the device's lock is held when calling
  * this function. */
-static struct dnx_cmdbuf *find_cmdbuf_by_dma_addr(struct dnx_device *dnx, dma_addr_t addr, struct drm_gem_cma_object **bo)
+static struct dnx_cmdbuf *find_cmdbuf_by_dma_addr(struct dnx_device *dnx, dma_addr_t addr, struct dnx_bo **bo)
 {
 	struct dnx_cmdbuf *cmdbuf = NULL, *tmp;
 
@@ -81,7 +82,7 @@ static struct dnx_cmdbuf *find_cmdbuf_by_dma_addr(struct dnx_device *dnx, dma_ad
 		*bo = NULL;
 
 	list_for_each_entry_safe(cmdbuf, tmp, &dnx->active_cmd_list, node) {
-		struct drm_gem_cma_object *obj = find_bo_by_dma_addr(cmdbuf, addr);
+		struct dnx_bo *obj = find_bo_by_dma_addr(cmdbuf, addr);
 
 		if(obj) {
 			if(bo)
@@ -123,7 +124,7 @@ void dnx_debug_stream_err(struct dnx_device *dnx)
 	}
 	else {
 		struct dnx_cmdbuf *cmdbuf;
-		struct drm_gem_cma_object *bo = NULL;
+		struct dnx_bo *bo = NULL;
 
 		dev_info(dnx->dev, "Error in user job:\n");
 

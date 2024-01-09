@@ -6,6 +6,7 @@
 #include <drm/drmP.h>
 #include <drm/drm_crtc_helper.h>
 #include <drm/drm_gem_cma_helper.h>
+#include "dnx_drm.h"
 #include "dnx_selftest.h"
 #include "dnx_drv.h"
 #include "dnx_gpu.h"
@@ -86,29 +87,38 @@ static int dnx_ioctl_gem_new(struct drm_device *dev, void *data,
 	struct drm_file *file)
 {
 	struct drm_dnx_gem_new *args = data;
-	struct drm_gem_object *bo = NULL;
-	dma_addr_t paddr;
+	struct dnx_bo *bo = NULL;
+	u32 flags = 0;
 	int ret;
 
 	dev_dbg(dev->dev, "New bo:\n");
 	dev_dbg(dev->dev, " size=0x%08llx\n", args->size);
 	dev_dbg(dev->dev, " flags=0x%08x\n", args->flags);
 
-	if (args->flags & ~(DNX_BO_CACHED | DNX_BO_WC | DNX_BO_UNCACHED))
+	if (args->flags & ~(DNX_BO_CACHED | DNX_BO_WC | DNX_BO_UNCACHED | DNX_BO_SHADER_ARENA))
 			return -EINVAL;
 
-	bo = dnx_gem_new(dev, args->size, &paddr);
+	if(args->flags & DNX_BO_SHADER_ARENA) {
+		flags |= DNX_GEM_FLAG_ARENA_PROGRAM;
+	}
+	else {
+		flags |= DNX_GEM_FLAG_ARENA_VIDEO;
+	}
+
+	bo = dnx_gem_create(dev, args->size, flags);
 	if(IS_ERR(bo))
 		return PTR_ERR(bo);
 
-	args->paddr = paddr;
+	args->paddr = bo->paddr;
 	dev_dbg(dev->dev, " paddr=0x%08llx\n", args->paddr);
+	dev_dbg(dev->dev, " vaddr=0x%p\n", bo->vaddr);
 
-	ret = drm_gem_handle_create(file, bo, &args->handle);
-	drm_gem_object_unreference_unlocked(bo);
+	ret = drm_gem_handle_create(file, &bo->base, &args->handle);
+	drm_gem_object_unreference_unlocked(&bo->base);
 
 	dev_dbg(dev->dev, " handle=0x%08x\n", args->handle);
 	dev_dbg(dev->dev, " obj=0x%p\n", bo);
+	dev_dbg(dev->dev, " actual_size=0x%08zx\n", bo->base.size);
 
 	return ret;
 }
@@ -138,7 +148,7 @@ static int dnx_ioctl_gem_user(struct drm_device *dev, void *data,
 {
 	struct drm_dnx_gem_user *args = data;
 	struct drm_gem_object *obj;
-	struct drm_gem_cma_object *obj_cma;
+	struct dnx_bo *bo;
 
 	if (args->pad)
 		return -EINVAL;
@@ -147,8 +157,8 @@ static int dnx_ioctl_gem_user(struct drm_device *dev, void *data,
 	if (!obj)
 		return -ENOENT;
 
-	obj_cma = to_drm_gem_cma_obj(obj);
-	args->paddr = obj_cma->paddr;
+	bo = to_dnx_bo(obj);
+	args->paddr = bo->paddr;
 
 	drm_gem_object_unreference_unlocked(obj);
 
@@ -328,11 +338,11 @@ int dnx_mmap(struct file *filp, struct vm_area_struct *vma)
 	if(vma->vm_pgoff >= 0x10000) {
 		int ret;
 
-		dev_dbg(dev->dev, "mmap cma bo vm_pgoff=%lx\n", vma->vm_pgoff);
+		dev_dbg(dev->dev, "mmap dnx bo vm_pgoff=%lx\n", vma->vm_pgoff);
 
-		ret = drm_gem_cma_mmap(filp, vma);
+		ret = dnx_gem_mmap(filp, vma);
 		if (ret) {
-			dev_err(dev->dev, "mmap gem cma failed: %d", ret);
+			dev_err(dev->dev, "mmap dnx gem failed: %d", ret);
 			return ret;
 		}
 	}
@@ -366,15 +376,6 @@ int dnx_mmap(struct file *filp, struct vm_area_struct *vma)
 	return 0;
 }
 
-#ifdef DEBUG
-void dnx_gem_free_object(struct drm_gem_object *obj)
-{
-	dev_dbg(obj->dev->dev, "freeing bo 0x%p kref=%d\n", obj, obj->refcount.refcount.counter);
-	drm_gem_cma_free_object(obj);
-}
-#endif
-
-
 static const struct file_operations dnx_fops = {
   .owner          = THIS_MODULE,
   .open           = drm_open,
@@ -389,24 +390,26 @@ static const struct file_operations dnx_fops = {
   .mmap           = dnx_mmap,
 };
 
+const struct vm_operations_struct dnx_gem_vm_ops = {
+	.open = drm_gem_vm_open,
+	.close = drm_gem_vm_close,
+};
+
+/* todo: remove prime support for the time being */
 static struct drm_driver dnx_driver = {
   .driver_features           = DRIVER_HAVE_IRQ | DRIVER_GEM | DRIVER_PRIME | DRIVER_RENDER,
-#ifdef DEBUG
   .gem_free_object           = dnx_gem_free_object,
-#else
-  .gem_free_object           = drm_gem_cma_free_object,
-#endif
   .prime_handle_to_fd        = drm_gem_prime_handle_to_fd,
   .prime_fd_to_handle        = drm_gem_prime_fd_to_handle,
   .gem_prime_import          = drm_gem_prime_import,
   .gem_prime_export          = drm_gem_prime_export,
-  .gem_prime_get_sg_table    = drm_gem_cma_prime_get_sg_table,
-  .gem_prime_import_sg_table = drm_gem_cma_prime_import_sg_table,
-  .gem_prime_vmap            = drm_gem_cma_prime_vmap,
-  .gem_prime_vunmap          = drm_gem_cma_prime_vunmap,
-  .gem_prime_mmap            = drm_gem_cma_prime_mmap,
-  .gem_vm_ops                = &drm_gem_cma_vm_ops,
-  .dumb_create               = drm_gem_cma_dumb_create,
+  .gem_prime_get_sg_table    = dnx_gem_prime_get_sg_table,
+  .gem_prime_import_sg_table = dnx_gem_prime_import_sg_table,
+  .gem_prime_vmap            = dnx_gem_prime_vmap,
+  .gem_prime_vunmap          = dnx_gem_prime_vunmap,
+  .gem_prime_mmap            = dnx_gem_prime_mmap,
+  .gem_vm_ops                = &dnx_gem_vm_ops,
+  .dumb_create               = drm_gem_dumb_create,
   .dumb_map_offset           = drm_gem_dumb_map_offset,
   .dumb_destroy              = drm_gem_dumb_destroy,
 #ifdef CONFIG_DEBUG_FS
@@ -444,6 +447,8 @@ static int dnx_remove(struct platform_device *pdev) {
   struct dnx_device *dnx = platform_get_drvdata(pdev);
   struct drm_device *ddev = dnx->drm;
 
+  dnx_gpu_release(dnx);
+
   drm_dev_unregister(ddev);
   drm_dev_unref(ddev);
 
@@ -457,6 +462,8 @@ static int dnx_probe(struct platform_device *pdev) {
 	struct device_node *np = pdev->dev.of_node;
 	dnx_config_ver_t version;
 	dnx_config_1_t config1;
+	dnx_config_2_t config2;
+	dnx_config_4_t config4;
 	int ret = 0;
 
 	dnx = devm_kzalloc(&pdev->dev, sizeof(*dnx), GFP_KERNEL);
@@ -515,10 +522,25 @@ static int dnx_probe(struct platform_device *pdev) {
 	dev_info(&pdev->dev, "D/AVE NX HW ver. %u (SVN rev. %u):\n", version.bits.m_hwver, version.bits.m_vcsver);
 
 	config1.m_data = dnx_reg_read(dnx, DNX_REG_CONTROL_CONFIG_1);
-	dev_info(&pdev->dev, "\tShaders: %u\n", config1.bits.m_shader_count);
-	dev_info(&pdev->dev, "\tALUs: %u\n", config1.bits.m_shader_alu_count*4);
-	dev_info(&pdev->dev, "\tTexture units: %u\n", config1.bits.m_tex_units_count);
-	dev_info(&pdev->dev, "\tAuto recover: %s\n", recover ? "enabled" : "disabled");
+	config2.m_data = dnx_reg_read(dnx, DNX_REG_CONTROL_CONFIG_2);
+	config4.m_data = dnx_reg_read(dnx, DNX_REG_CONTROL_CONFIG_4);
+
+	dev_info(&pdev->dev, "\tToplevel hardware config:");
+	dev_info(&pdev->dev, "\t\tCore clock: %u MHz\n", config4.bits.m_freq);
+	dev_info(&pdev->dev, "\t\tShader units: %u\n", config1.bits.m_shader_count);
+	
+	dev_info(&pdev->dev, "\tShader unit hardware config:");
+	dev_info(&pdev->dev, "\t\tALUs: %u\n", config1.bits.m_shader_alu_count*4);
+	dev_info(&pdev->dev, "\t\tVirtual texture units: %u\n", config1.bits.m_tex_virt_unit_count + 1);
+	dev_info(&pdev->dev, "\t\tPreexecution units: %u\n", config2.bits.m_preexec_unit_count + 1);
+	dev_info(&pdev->dev, "\t\tSpecial function units: %u\n", config4.bits.m_sfu ? 1 : 0);
+	dev_info(&pdev->dev, "\t\tBlend units: %u\n", config2.bits.m_blendunit_count);
+	
+	dev_info(&pdev->dev, "\tNon-GLES2 features:");
+	dev_info(&pdev->dev, "\t\tPartial derivatives: %s\n", config4.bits.m_partial_derivatives ? "yes" : "no");
+
+	dev_info(&pdev->dev, "\tDriver features:\n");
+	dev_info(&pdev->dev, "\t\tAuto recover: %s\n", recover ? "enabled" : "disabled");
 
 	if(DNX_HWVERSION != version.bits.m_hwver) {
 		dev_err(&pdev->dev, "unsupported D/AVE NX hardware version (required: %u)\n", DNX_HWVERSION);
@@ -536,7 +558,11 @@ static int dnx_probe(struct platform_device *pdev) {
 
 	platform_set_drvdata(pdev, dnx);
 
-	dnx_gpu_init(dnx);
+	ret = dnx_gpu_init(dnx);
+	if(ret) {
+		dev_err(&pdev->dev, "failed to initialize GPU: %d\n", ret);
+		return ret;
+	}
 
 	/* setup debug facility */
 	spin_lock_init(&dnx->debug_irq_slck);

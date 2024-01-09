@@ -1,24 +1,152 @@
 #include "dnx_gem.h"
+#include "dnx_gpu.h"
 
+#include <linux/dma-buf.h>
 #include <drm/drm_gem_cma_helper.h>
+#include <drm/drm_mm.h>
+
+/**
+ * The implementations in this file follow the GEM CMA helper implementation in
+ * the kernel.
+ */
 
 
-struct drm_gem_object *dnx_gem_new(struct drm_device *dev, size_t unaligned_size, dma_addr_t *paddr)
+/**
+ * __dnx_bo_create - Create a DNX BO without allocating memory
+ * @drm: DRM device
+ * @size: size of the object to allocate
+ *
+ * This function creates and initializes a DNX BO of the given size,
+ * but doesn't allocate any memory to back the object.
+ *
+ * Returns:
+ * A struct dnx_bo_object * on success or an ERR_PTR()-encoded negative
+ * error code on failure.
+ */
+static struct dnx_bo *
+__dnx_bo_create(struct drm_device *drm, size_t size)
 {
-	struct drm_gem_cma_object *obj;
+	struct dnx_bo *dnx_obj;
+	struct drm_gem_object *gem_obj;
+	int ret;
+
+	if (drm->driver->gem_create_object)
+		gem_obj = drm->driver->gem_create_object(drm, size);
+	else
+		gem_obj = kzalloc(sizeof(*dnx_obj), GFP_KERNEL);
+	if (!gem_obj)
+		return ERR_PTR(-ENOMEM);
+	dnx_obj = container_of(gem_obj, struct dnx_bo, base);
+
+	ret = drm_gem_object_init(drm, gem_obj, size);
+	if (ret)
+		goto error;
+
+	ret = drm_gem_create_mmap_offset(gem_obj);
+	if (ret) {
+		drm_gem_object_release(gem_obj);
+		goto error;
+	}
+
+	return dnx_obj;
+
+error:
+	kfree(dnx_obj);
+	return ERR_PTR(ret);
+}
+
+
+struct dnx_bo *dnx_gem_create(struct drm_device *dev, size_t unaligned_size, u32 flags)
+{
+	struct dnx_device *dnx = dev->dev_private;
+	struct dnx_bo *bo;
+	size_t size;
+	int ret;
 
 	if(unaligned_size == 0)
 			return ERR_PTR(-EINVAL);
+	size = round_up(unaligned_size, DNX_GEM_ALIGN_SIZE);
 
-	obj = drm_gem_cma_create(dev, unaligned_size);
-	if(IS_ERR(obj)) {
-		dev_err(dev->dev, "Failed to allocate from CMA\n");
-		return ERR_PTR(-ENOMEM);
+	dev_dbg(dev->dev, "%s size=0x%08zx\n", __func__, unaligned_size);
+	dev_dbg(dev->dev, "%s actual_size=0x%08zx\n", __func__, size);
+	bo = __dnx_bo_create(dev, size);
+	if (IS_ERR(bo))
+		return bo;
+
+	if(flags & DNX_GEM_FLAG_ARENA_VIDEO) {
+		bo->vaddr = dma_alloc_wc(dev->dev, size, &bo->paddr,
+						GFP_KERNEL | __GFP_NOWARN);
+		if (!bo->vaddr) {
+			dev_err(dev->dev, "failed to allocate buffer with size %zu\n",
+				size);
+			ret = -ENOMEM;
+			goto error_alloc;
+		}
+		dev_dbg(dev->dev, "%s arena=video\n", __func__);
+	}
+	else if(flags & DNX_GEM_FLAG_ARENA_PROGRAM) {
+		bo->mm_node = kzalloc(sizeof(*bo->mm_node), GFP_KERNEL | __GFP_NOWARN);
+		if (!bo->mm_node) {
+			dev_err(dev->dev, "failed to allocate mm node\n");
+			ret = -ENOMEM;
+			goto error_alloc;
+		}
+		dev_dbg(dev->dev, "%s arena.mm=%p\n", __func__, &dnx->program_arena.mm);
+		ret = drm_mm_insert_node(&dnx->program_arena.mm, bo->mm_node, size >> DNX_GEM_ALIGN_SHIFT);
+		if(ret) {
+			dev_err(dev->dev, "failed to insert mm node (%d)\n", ret);
+			goto error_alloc;
+		}
+		
+		bo->paddr = dnx->program_arena.paddr + (bo->mm_node->start << DNX_GEM_ALIGN_SHIFT);
+		bo->vaddr = dnx->program_arena.vaddr + (bo->mm_node->start << DNX_GEM_ALIGN_SHIFT);
+		dev_dbg(dev->dev, "%s arena=program\n", __func__);
 	}
 
-	*paddr = obj->paddr;
+	return bo;
 
-	return &obj->base;
+error_alloc:
+	drm_gem_object_put_unlocked(&bo->base);
+	return ERR_PTR(ret);
+}
+
+
+static int dnx_gem_mmap_obj(struct dnx_bo *bo,
+				struct vm_area_struct *vma)
+{
+	int ret;
+
+	/*
+	 * Clear the VM_PFNMAP flag that was set by drm_gem_mmap(), and set the
+	 * vm_pgoff (used as a fake buffer offset by DRM) to 0 as we want to map
+	 * the whole buffer.
+	 */
+	vma->vm_flags &= ~VM_PFNMAP;
+	vma->vm_pgoff = 0;
+
+	ret = dma_mmap_wc(bo->base.dev->dev, vma, bo->vaddr,
+			  bo->paddr, vma->vm_end - vma->vm_start);
+	if (ret)
+		drm_gem_vm_close(vma);
+
+	return ret;
+}
+
+
+int dnx_gem_mmap(struct file *filp, struct vm_area_struct *vma)
+{
+	struct dnx_bo *bo;
+	struct drm_gem_object *gem_obj;
+	int ret;
+
+	ret = drm_gem_mmap(filp, vma);
+	if (ret)
+		return ret;
+
+	gem_obj = vma->vm_private_data;
+	bo = to_dnx_bo(gem_obj);
+
+	return dnx_gem_mmap_obj(bo, vma);
 }
 
 
@@ -34,4 +162,153 @@ int dnx_gem_mmap_offset(struct drm_gem_object *obj, u64 *offset)
 		*offset = drm_vma_node_offset_addr(&obj->vma_node);
 
 	return ret;
+}
+
+
+static struct dnx_bo *
+dnx_gem_create_with_handle(struct drm_file *file_priv,
+			       struct drm_device *drm, size_t size,
+			       uint32_t *handle)
+{
+	struct dnx_bo *bo;
+	struct drm_gem_object *gem_obj;
+	int ret;
+
+	bo = dnx_gem_create(drm, size, DNX_GEM_FLAG_ARENA_VIDEO);
+	if (IS_ERR(bo))
+		return bo;
+
+	gem_obj = &bo->base;
+
+	/*
+	 * allocate a id of idr table where the obj is registered
+	 * and handle has the id what user can see.
+	 */
+	ret = drm_gem_handle_create(file_priv, gem_obj, handle);
+	/* drop reference from allocate - handle holds it now. */
+	drm_gem_object_put_unlocked(gem_obj);
+	if (ret)
+		return ERR_PTR(ret);
+
+	return bo;
+}
+
+
+int drm_gem_dumb_create(struct drm_file *file_priv,
+			    struct drm_device *drm,
+			    struct drm_mode_create_dumb *args)
+{
+	struct dnx_bo *bo;
+
+	args->pitch = DIV_ROUND_UP(args->width * args->bpp, 8);
+	args->size = args->pitch * args->height;
+
+	bo = dnx_gem_create_with_handle(file_priv, drm, args->size,
+						 &args->handle);
+	return PTR_ERR_OR_ZERO(bo);
+}
+
+
+void dnx_gem_free_object(struct drm_gem_object *gem_obj)
+{
+	struct dnx_bo *bo;
+
+	bo = to_dnx_bo(gem_obj);
+
+	dev_dbg(gem_obj->dev->dev, "freeing bo 0x%p kref=%d\n", gem_obj, gem_obj->refcount.refcount.refs.counter);
+
+	if (bo->vaddr) {
+		if(bo->mm_node) {
+			dev_dbg(gem_obj->dev->dev, "freeing mm node 0x%p\n", bo->mm_node);
+			dev_dbg(gem_obj->dev->dev, "  mm 0x%p\n", bo->mm_node->mm);
+			drm_mm_remove_node(bo->mm_node);
+			kfree(bo->mm_node);
+		}
+		else {
+			dma_free_wc(gem_obj->dev->dev, bo->base.size,
+					bo->vaddr, bo->paddr);
+		}
+	} else if (gem_obj->import_attach) {
+		drm_prime_gem_destroy(gem_obj, bo->sgt);
+	}
+
+	drm_gem_object_release(gem_obj);
+
+	kfree(bo);
+}
+
+
+struct sg_table *dnx_gem_prime_get_sg_table(struct drm_gem_object *obj)
+{
+	struct dnx_bo *bo = to_dnx_bo(obj);
+	struct sg_table *sgt;
+	int ret;
+
+	sgt = kzalloc(sizeof(*sgt), GFP_KERNEL);
+	if (!sgt)
+		return NULL;
+
+	ret = dma_get_sgtable(obj->dev->dev, sgt, bo->vaddr,
+			      bo->paddr, obj->size);
+	if (ret < 0)
+		goto out;
+
+	return sgt;
+
+out:
+	kfree(sgt);
+	return NULL;
+}
+
+
+struct drm_gem_object *
+dnx_gem_prime_import_sg_table(struct drm_device *dev,
+				  struct dma_buf_attachment *attach,
+				  struct sg_table *sgt)
+{
+	struct dnx_bo *bo;
+
+	if (sgt->nents != 1)
+		return ERR_PTR(-EINVAL);
+
+	/* Create a CMA GEM buffer. */
+	bo = __dnx_bo_create(dev, attach->dmabuf->size);
+	if (IS_ERR(bo))
+		return ERR_CAST(bo);
+
+	bo->paddr = sg_dma_address(sgt->sgl);
+	bo->sgt = sgt;
+
+	DRM_DEBUG_PRIME("dma_addr = %pad, size = %zu\n", &bo->paddr, attach->dmabuf->size);
+
+	return &bo->base;
+}
+
+
+void *dnx_gem_prime_vmap(struct drm_gem_object *obj)
+{
+	struct dnx_bo *bo = to_dnx_bo(obj);
+
+	return bo->vaddr;
+}
+
+
+void dnx_gem_prime_vunmap(struct drm_gem_object *obj, void *vaddr)
+{
+	/* Nothing to do */
+}
+
+
+int dnx_gem_prime_mmap(struct drm_gem_object *obj,
+			   struct vm_area_struct *vma)
+{
+	struct dnx_bo *bo;
+	int ret;
+
+	ret = drm_gem_mmap_obj(obj, obj->size, vma);
+	if (ret < 0)
+		return ret;
+
+	bo = to_dnx_bo(obj);
+	return dnx_gem_mmap_obj(bo, vma);
 }
