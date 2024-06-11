@@ -1,3 +1,6 @@
+#include <drm/drm_debugfs.h>
+#include <drm/drm_vma_manager.h>
+
 #include "dnx_debugfs.h"
 
 #include "dnx_drv.h"
@@ -183,21 +186,11 @@ static struct drm_info_list dnx_debugfs_list[] = {
 };
 
 
-int dnx_debugfs_init(struct drm_minor *minor)
+void dnx_debugfs_init(struct drm_minor *minor)
 {
-	struct drm_device *dev = minor->dev;
-	int ret;
-
-	ret = drm_debugfs_create_files(dnx_debugfs_list,
-			ARRAY_SIZE(dnx_debugfs_list),
-			minor->debugfs_root, minor);
-
-	if (ret) {
-		dev_err(dev->dev, "could not install dnx_debugfs_list\n");
-		return ret;
-	}
-
-	return ret;
+	drm_debugfs_create_files(dnx_debugfs_list,
+		ARRAY_SIZE(dnx_debugfs_list),
+		minor->debugfs_root, minor);
 }
 
 

@@ -1,8 +1,11 @@
 #include "dnx_gpu.h"
 
 #include <linux/delay.h>
+#include <linux/dma-mapping.h>
+#include <drm/drm_mm.h>
 
 #include "dnx_drv.h"
+#include "dnx_gem.h"
 #include "dnx_buffer.h"
 #include "nx_register_address.h"
 #include "nx_types.h"
@@ -32,10 +35,10 @@ static void retire_worker(struct work_struct *work)
 		--dnx->active_cmd_count;
 
 		for (i = 0; i < cmdbuf->nr_bos; i++) {
-			struct drm_gem_cma_object *obj = cmdbuf->bos[i];
+			struct dnx_bo *bo = cmdbuf->bos[i];
 
 			/* drop the refcount taken in dnx_ioctl_gem_submit */
-			drm_gem_object_unreference_unlocked(&obj->base);
+			drm_gem_object_put(&bo->base);
 		}
 
 		dnx_gpu_cmdbuf_free(cmdbuf);
@@ -46,6 +49,64 @@ static void retire_worker(struct work_struct *work)
 	mutex_unlock(&dnx->lock);
 
 //	wake_up_all(&gpu->fence_event);
+}
+
+
+static int dnx_gpu_arena_create(struct dnx_device *dnx, struct dnx_arena *arena, u32 size)
+{
+	int ret = 0;
+
+	/* Check for alignment. */
+	BUG_ON((size & DNX_GEM_ALIGN_MASK) != 0);
+
+	arena->size = size;
+	arena->vaddr = dma_alloc_wc(dnx->dev, size, &arena->paddr, GFP_KERNEL);
+	if (!arena->vaddr) {
+		dev_err(dnx->dev, "failed to allocate arena with size %u\n",
+				size);
+		ret = -ENOMEM;
+	}
+
+	drm_mm_init(&arena->mm, 0, (size >> DNX_GEM_ALIGN_SHIFT));
+
+	return ret;
+}
+
+
+static void dnx_gpu_arena_delete(struct dnx_device *dnx, struct dnx_arena *arena)
+{
+	drm_mm_takedown(&arena->mm);
+	dma_free_wc(dnx->dev, arena->size, arena->vaddr, arena->paddr);
+	arena->vaddr = 0;
+	arena->paddr = 0;
+}
+
+
+static struct dnx_ringbuf *dnx_gpu_ringbuf_new(struct dnx_device *dnx, u32 size)
+{
+	struct dnx_ringbuf *ringbuf;
+
+	if(size != PAGE_SIZE)
+	{
+		dev_err(dnx->dev, "%s currently not implemented properly: only capable of creating ring buffer\n", __func__);
+		return NULL;
+	}
+
+	ringbuf = kzalloc(sizeof(*ringbuf), GFP_KERNEL);
+	if(!ringbuf)
+		return NULL;
+
+	ringbuf->vaddr = dma_alloc_wc(dnx->dev, size, &ringbuf->paddr, GFP_KERNEL);
+	ringbuf->size = size;
+
+	return ringbuf;
+}
+
+
+static void dnx_gpu_ringbuf_free(struct dnx_device *dnx, struct dnx_ringbuf *ringbuf)
+{
+	dma_free_wc(dnx->dev, ringbuf->size, ringbuf->vaddr, ringbuf->paddr);
+	kfree(ringbuf);
 }
 
 
@@ -67,8 +128,16 @@ int dnx_gpu_init(struct dnx_device *dnx)
 		dev_err(dnx->dev, "could not create command buffer\n");
 		return -ENOMEM;
 	}
-
 	dnx_buffer_init(dnx);
+
+	/* create shader program memory arena */
+	ret = dnx_gpu_arena_create(dnx, &dnx->program_arena, DNX_PROGRAM_ARENA_SIZE);
+	if(ret) {
+		dev_err(dnx->dev, "could not create shader program arena\n");
+		goto error_arena;
+	}
+	dnx_reg_write(dnx, DNX_REG_CONTROL_PGM_BASE_ADDR, dnx->program_arena.paddr);
+	dev_dbg(dnx->dev, "created shader program arena at %pad\n", &dnx->program_arena.paddr);
 
 	INIT_LIST_HEAD(&dnx->active_cmd_list);
 	dnx->active_cmd_count = 0;
@@ -78,13 +147,16 @@ int dnx_gpu_init(struct dnx_device *dnx)
 	dnx->wq = alloc_ordered_workqueue("dnx", 0);
 	if (!dnx->wq) {
 		ret = -ENOMEM;
-		goto out_wq;
+		goto error_wq;
 	}
 
 	return 0;
 
-out_wq:
-	dnx_gpu_ringbuf_free(dnx->buffer);
+error_wq:
+	dnx_gpu_arena_delete(dnx, &dnx->program_arena);
+
+error_arena:
+	dnx_gpu_ringbuf_free(dnx, dnx->buffer);
 
 	return ret;
 }
@@ -95,8 +167,10 @@ void dnx_gpu_release(struct dnx_device *dnx)
 	flush_workqueue(dnx->wq);
 	destroy_workqueue(dnx->wq);
 
+	dnx_gpu_arena_delete(dnx, &dnx->program_arena);
+
 	if(dnx->buffer) {
-		dnx_gpu_ringbuf_free(dnx->buffer);
+		dnx_gpu_ringbuf_free(dnx, dnx->buffer);
 		dnx->buffer = NULL;
 	}
 }
@@ -130,7 +204,7 @@ struct dnx_cmdbuf *dnx_gpu_cmdbuf_new(struct dnx_device *dnx, size_t nr_bo)
 
 	buf->dnx = dnx;
 
-	dev_dbg(dnx->dev, "new cmd buffer %p (bos size=%d)\n", buf, size-sizeof(*buf));
+	dev_dbg(dnx->dev, "new cmd buffer %p (bos size=%zx)\n", buf, size-sizeof(*buf));
 
 	return buf;
 }
@@ -162,9 +236,9 @@ int dnx_gpu_cmdbuf_lookup_objects(struct dnx_cmdbuf *buf,
 		 * Take a refcount on the object. The file table lock
 		 * prevents the object_idr's refcount on this being dropped.
 		 */
-		drm_gem_object_reference(obj);
+		drm_gem_object_get(obj);
 
-		buf->bos[i] = to_drm_gem_cma_obj(obj);
+		buf->bos[i] = to_dnx_bo(obj);
 	}
 
 out_unlock:
@@ -179,34 +253,6 @@ void dnx_gpu_cmdbuf_free(struct dnx_cmdbuf *buf)
 {
 	dev_dbg(buf->dnx->dev, "freeing cmdbuf %p\n", buf);
 	kfree(buf);
-}
-
-
-struct dnx_ringbuf *dnx_gpu_ringbuf_new(struct dnx_device *dnx, u32 size)
-{
-	struct dnx_ringbuf *ringbuf;
-
-	if(size != PAGE_SIZE)
-	{
-		dev_err(dnx->dev, "%s currently not implemented properly: only capable of creating ring buffer\n", __func__);
-		return NULL;
-	}
-
-	ringbuf = kzalloc(sizeof(*ringbuf), GFP_KERNEL);
-	if(!ringbuf)
-		return NULL;
-
-	ringbuf->vaddr = dma_alloc_writecombine(dnx->dev, size, &ringbuf->paddr, GFP_KERNEL);
-	ringbuf->size = size;
-
-	return ringbuf;
-}
-
-
-void dnx_gpu_ringbuf_free(struct dnx_ringbuf *ringbuf)
-{
-	dma_free_writecombine(ringbuf->dnx->dev, ringbuf->size, ringbuf->vaddr, ringbuf->paddr);
-	kfree(ringbuf);
 }
 
 
@@ -227,7 +273,7 @@ int dnx_gpu_submit(struct dnx_device *dnx, struct dnx_cmdbuf *buf)
 }
 
 
-int dnx_gpu_wait_fence_interruptible(struct dnx_device *dnx, u32 fence, struct timespec *timeout)
+int dnx_gpu_wait_fence_interruptible(struct dnx_device *dnx, u32 fence, struct timespec64 *timeout)
 {
 	int ret;
 
@@ -241,8 +287,8 @@ int dnx_gpu_wait_fence_interruptible(struct dnx_device *dnx, u32 fence, struct t
 	}
 	else {
 		unsigned long remaining = dnx_timeout_to_jiffies(timeout);
-		struct timespec t;
-		jiffies_to_timespec(jiffies - INITIAL_JIFFIES, &t);
+		struct timespec64 t;
+		jiffies_to_timespec64(jiffies - INITIAL_JIFFIES, &t);
 
 //		dev_info(dnx->dev, "timeout: %lu jiffies\n", remaining);
 

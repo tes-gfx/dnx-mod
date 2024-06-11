@@ -3,10 +3,10 @@
 #ifdef CONFIG_DEBUG_FS
 
 
-#include <drm/drmP.h>
+#include <drm/drm_drv.h>
 
 
-int dnx_debugfs_init(struct drm_minor *minor);
+void dnx_debugfs_init(struct drm_minor *minor);
 void dnx_debugfs_cleanup(struct drm_minor *minor);
 
 

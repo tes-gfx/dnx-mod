@@ -1,7 +1,7 @@
 #include "dnx_gem.h"
 
 #include <drm/drm_gem.h>
-#include <drm/drm_gem_cma_helper.h>
+#include <drm/drm_drv.h>
 
 #include "dnx_gpu.h"
 
@@ -12,9 +12,9 @@ int dnx_ioctl_gem_submit(struct drm_device *dev, void *data,
 	struct dnx_device *dnx = dev->dev_private;
 	struct drm_dnx_stream_submit *args = data;
 	u32 *handles;
-	struct drm_gem_cma_object **bos = NULL;
+	struct dnx_bo **bos = NULL;
 	struct dnx_cmdbuf *cmdbuf;
-	struct drm_gem_cma_object *last_page;
+	struct dnx_bo *last_page;
 	dma_addr_t stream_addr;
 	void* stream_jmpaddr;
 	int ret, i;
@@ -70,7 +70,7 @@ int dnx_ioctl_gem_submit(struct drm_device *dev, void *data,
 	stream_jmpaddr = (void*) (last_page->vaddr + (args->jump - last_page->paddr));
 	cmdbuf->paddr = stream_addr;
 	cmdbuf->vjmpaddr = stream_jmpaddr;
-	dev_dbg(dev->dev, " pstreamaddr=0x%08x vjmpaddr=0x%p\n", stream_addr, stream_jmpaddr);
+	dev_dbg(dev->dev, " pstreamaddr=0x%pad vjmpaddr=0x%p\n", &stream_addr, stream_jmpaddr);
 
 	ret = dnx_gpu_submit(dev->dev_private, cmdbuf);
 	args->fence = cmdbuf->fence;

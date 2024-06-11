@@ -2,8 +2,9 @@
 #define __DNX_DRV_H__
 
 #include <linux/kernel.h>
-#include <drm/drmP.h>
-#include <drm/dnx_drm.h>
+//#include <drm/drmP.h>
+#include <drm/drm_file.h>
+#include "dnx_drm.h"
 
 #include "nx_types.h"
 
@@ -55,9 +56,9 @@ static inline bool fence_after_eq(u32 a, u32 b)
 }
 
 static inline unsigned long dnx_timeout_to_jiffies(
-			const struct timespec *timeout)
+			const struct timespec64 *timeout)
 {
-	unsigned long timeout_jiffies = timespec_to_jiffies(timeout);
+	unsigned long timeout_jiffies = timespec64_to_jiffies(timeout);
 	unsigned long start_jiffies = jiffies - INITIAL_JIFFIES;
 	unsigned long remaining_jiffies;
 
