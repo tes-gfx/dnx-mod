@@ -1,3 +1,4 @@
+REPO_ROOT := $(src)/../../../../..
 obj-m := dnx.o
 dnx-y := dnx_drv.o \
 	 dnx_buffer.o \
@@ -8,7 +9,7 @@ dnx-y := dnx_drv.o \
 	 dnx_selftest.o \
 	 dnx_gpu.o \
 
-ccflags-y := -I$(src)/../../../../driver/kernel/linux/drm-dnx  -I$(src)/../../../../interface/src -I$(src)/../drm-dnx -I$(src)/../drm-dnx/davenx
+ccflags-y := -I$(REPO_ROOT)/driver/kernel/linux/drm-dnx  -I$(REPO_ROOT)/interface/src -I$(REPO_ROOT)/driver/kernel/linux/drm-dnx/davenx
 
 ifeq ($(DEBUG),1)
 	ccflags-y += -DDEBUG=1 -g -Og
