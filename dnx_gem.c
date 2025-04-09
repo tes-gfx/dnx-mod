@@ -58,6 +58,10 @@ static int dnx_gem_mmap_obj(struct dnx_bo *bo,
 	vma->vm_flags &= ~VM_PFNMAP;
 	vma->vm_pgoff = 0;
 
+#if 0
+	printk("xxx dnx_gem_mmap_obj: vm_start=%p vm_end=%p sz=%u call dma_mmap_wc\n", (void*)vma->vm_start, (void*)vma->vm_end, (unsigned int)(size_t)(vma->vm_end - vma->vm_start));
+#endif
+
 	ret = dma_mmap_wc(bo->base.dev->dev, vma, bo->vaddr,
 			  bo->paddr, vma->vm_end - vma->vm_start);
 	if (ret)
